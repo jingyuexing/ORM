@@ -4,8 +4,13 @@ class User {
 }
 
 interface WhereOptions<T> {
-    whereType: "and" | "or",
+    whereType?: "and" | "or",
     entity: T
+}
+
+interface WhereConfig<T> {
+    order: "ASC" | "DESC",
+    select: FieldSelect<Partial<T>>
 }
 
 type FieldSelect<T> = {
@@ -19,7 +24,8 @@ interface SelectOptions<T> {
 
 interface UpdateOptions<T> {
     data: Partial<T>,
-    entity: T
+    entity: T,
+    where: WhereConfig<T>
 }
 
 function* getObjectItems(obj: any) {
@@ -56,6 +62,21 @@ function isEmpty(val: any) {
     }
 }
 
+export function typeIs(val: any) {
+    if (typeof val !== "object") {
+        return typeof val
+    } else {
+        switch (toString.call(val)) {
+            case "[object Array]": return "array";
+            case "[object Set]": return "set";
+            case "[object Map]": return "map";
+            case "[object Date]": return "date";
+            default:
+                return typeof val;
+        }
+    }
+}
+
 export function Select<T extends ObjectConstructor>(config: SelectOptions<T>) {
     let expression = ["select"]
     let columns: string[] = []
@@ -70,34 +91,76 @@ export function Select<T extends ObjectConstructor>(config: SelectOptions<T>) {
     } else {
         expression.push(select as "*")
     }
-    expression.push(["(", columns.join(","), ")"].join(""))
+    expression.push([
+        "(", 
+        columns.join(","),
+        ")"
+    ].join(""))
     expression.push("from", table)
     return expression.join(" ")
 }
 
-export function Where<T>(config: WhereOptions<T>) {
+export function Where<T>(config: WhereOptions<T>):string{
     let expression = ["where"]
     let { whereType = "or", entity = {} } = config;
     let condition = [];
+    let values = []
     for (let [key, value] of getObjectItems(entity)) {
-        condition.push(`${key}=${value}`)
+        condition.push([
+            key,
+            "=",
+            "?"
+        ].join(""))
+        values.push(value)
     }
     expression.push(condition.join(` ${whereType} `))
-    return expression.join(" ")
+    return convertValue(expression.join(" "), values) as string
 }
 // it should be generator sql like 
 export function Update<T extends ObjectConstructor>(config: UpdateOptions<T>) {
     let expression = ["update"]
-    let { entity, data } = config;
+    let { entity, data, where = undefined } = config;
     let pair = []
+    let values = []
     expression.push(entity.constructor.name)
+
     for (let [key, value] of getObjectItems(data)) {
-        pair.push(`${key}=${value}`)
+        pair.push([
+            key,
+            "=",
+            "?"
+        ].join(""))
+        values.push(value)
     }
     expression.push("set")
     expression.push(pair.join(","))
-    return expression.join(" ")
+    if (typeIs(where) !== "undefined") {
+        expression.push(Where({
+            entity: where?.select
+        }))
+    }
+    return convertValue(expression.join(" "), values)+";"
 }
+
+// declare function convertValue(values:[string,any[]]):string;
+export function convertValue(templateString: string | [string, any[]], values?: any[]) {
+    let template_ = templateString;
+    let values_ = values || [];
+    if (typeIs(templateString) === "array") {
+        [template_, values_] = templateString as [string, any[]];
+    }
+    for (let idx = 0; idx < values_.length; idx++) {
+        let templateValue = "";
+        if (typeIs(values_[idx]) === "string") {
+            templateValue = `"${values_[idx]}"`    
+        } else {
+            templateValue = values_[idx]
+        }
+        template_ = template_.replace("?", templateValue)
+    }
+    return template_
+}
+
 
 export function expressionTemplate(obj: any) {
     let expression = []
