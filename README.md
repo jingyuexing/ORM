@@ -17,3 +17,6 @@ npm run test:ui # the web page
 # or
 npm run test # the CLI
 ```
+
+## Other
+You can use [IndexDB](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API) to execute SQL statements in the browser
