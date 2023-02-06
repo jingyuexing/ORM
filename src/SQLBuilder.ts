@@ -1,63 +1,6 @@
-class User {
-    username: string = "";
-    age: number = 0
-}
+/// <reference path="./lib.SQLBuilder.d.ts" />
 
-
-interface WhereOptions<T> {
-    whereType?: "and" | "or",
-    entity: T,
-    where?: WhereCondition<T>
-}
-
-type LikeNumber = number | `${number}`
-
-type WhereCondition<T> = {
-    [P in keyof T]?: Partial<{
-        moreThant: LikeNumber,
-        lessthant: LikeNumber,
-        between: [LikeNumber, LikeNumber],
-        equal: LikeNumber,
-        moreThantOrEqual: LikeNumber,
-        lessThantOrEqual: LikeNumber,
-        notEqual: LikeNumber,
-        like: string,
-        in: (string | number)[],
-        order: "ASC" | "DESC"
-    }>
-}
-interface WhereConfig<T> {
-    order: "ASC" | "DESC",
-    select: FieldSelect<Partial<T>>
-}
-
-type FieldSelect<T> = {
-    [K in keyof T]: boolean;
-}
-
-type CreateTableOptions<T> = {
-    [K in keyof T]: {
-        nullable: boolean,
-        primary: boolean,
-        length: LikeNumber,
-        default: any,
-
-    }
-}
-
-
-interface SelectOptions<T> {
-    select: "*" | FieldSelect<Partial<T>>;
-    entity: T;
-}
-
-interface UpdateOptions<T> {
-    data: Partial<T>,
-    entity: T,
-    where: WhereConfig<T>
-}
-
-function* getObjectItems(obj: any) {
+function* getObjectItems<T extends object & {}>(obj: T) {
     const keys = Object.keys(obj);
     for (let i = 0; i < keys.length; i++) {
         let key = keys[i];
@@ -86,7 +29,7 @@ export function generatorParameters<T>(obj: T) {
 function conditionExpression(
     statement: string,
     oprater: ">" | "<" | "=" | ">=" | "<=" | "<>" | "!=",
-    condition: number | `${number}`
+    condition: number | `${number}`| "?"
 ) {
     return [
         statement,
@@ -96,74 +39,101 @@ function conditionExpression(
 }
 
 export function moreThant(statement: string, condition: number | `${number}`) {
-    return conditionExpression(
+    let expression = conditionExpression(
         statement,
         ">",
-        condition
+        "?"
     )
+    return convertValue(expression,[condition])
 }
 
 export function lessThant(statement: string, condition: number | `${number}`) {
-    return conditionExpression(
+    let expression = conditionExpression(
         statement,
         "<",
-        condition
+        "?"
     )
+    return convertValue(expression,[condition])
 }
 export function moreThantOrEqual(statement: string, condition: number | `${number}`) {
-    return conditionExpression(
+    let expression = conditionExpression(
         statement,
         ">=",
-        condition
+        "?"
     )
+    return convertValue(expression,[condition])
 }
-export function lessThantOrEqual(expression: string, condition: number | `${number}`) {
-    return conditionExpression(
-        expression,
+export function lessThantOrEqual(statement: string, condition: number | `${number}`) {
+    let expression = conditionExpression(
+        statement,
         "<=",
-        condition
+        "?"
     )
+    return convertValue(expression,[condition])
+
 }
 
 export function Equal(statement: string, condition: LikeNumber) {
-    return conditionExpression(
+    let expression = conditionExpression(
         statement,
         "=",
-        condition
+        "?"
     )
+    return convertValue(expression,[condition])
 }
 
 export function notEqual(statement: string, condition: LikeNumber) {
-    return conditionExpression(
+    let expression = conditionExpression(
         statement,
         "!=",
-        condition
+        "?"
     );
+    return convertValue(expression,[condition])
 }
-
 export function Between(columns: string, range: [any, any]) {
-    return [
+    let expression = [
         columns,
         "between",
-        range.join(" and ")
+        ["?","?"].join(" and ")
     ].join(" ")
+    return convertValue(expression,range)
+}
+export function OrderBy(args: string[], order: "ASC" | "DESC") {
+    // ORDER BY column1, column2, ... ASC|DESC;
+    let columnTemplate:"?"[] = []
+    args.forEach(()=>{
+        columnTemplate.push("?")
+    })
+    let expression = [
+        "order",
+        "by",
+        columnTemplate.join(","),
+        order
+    ].join(" ")
+    return convertValue(expression,args)
+}
+export function Like(statement: string) {
+    let expression = [
+        "like",
+        `?`
+    ].join(" ")
+    return convertValue(expression,[statement])
 }
 
-export function Like(statement: string) {
-    return [
-        "like",
-        `"${statement}"`
-    ].join(" ")
-}
 
 export function In(column: string, conditions: string[]) {
-    return [
+    let templateString = []
+    for(let i =0 ;i<conditions.length;i++){
+        templateString.push("?")
+    }
+    let expression = [
         column,
         "in",
         "(",
-        conditions.join(","),
+        templateString.join(","),
         ")"
     ].join(" ")
+    return convertValue(expression,conditions)
 }
 
 
@@ -176,15 +146,7 @@ function isEmpty(val: any) {
     }
 }
 
-export function OrderBy(args: string[], order: "ASC" | "DESC") {
-    // ORDER BY column1, column2, ... ASC|DESC;
-    return [
-        "order",
-        "by",
-        args.join(","),
-        order
-    ].join(" ")
-}
+
 
 export function typeIs(val: any) {
     if (typeof val !== "object") {
@@ -198,6 +160,11 @@ export function typeIs(val: any) {
             default:
                 return typeof val;
         }
+    }
+}
+
+export function Table<T extends {new(options:TableOptions<T>)}>(target:T){
+    return class extends target{
     }
 }
 
@@ -270,18 +237,7 @@ export function Where<T>(config: WhereOptions<T>): string {
 }
 
 export function getObjectProperties<T extends unknown>(target: T, key: string) {
-    let entries = Object.entries(target);
-    let keyCache = []
-    let targetValue: any = null;
-    for (let i = 0; i < entries.length; i++) {
-        let [key, targetValue] = entries[i];
-        keyCache.push(key)
-        if (keyCache.join(".") == key) {
-            return [keyCache.join("."), targetValue];
-        } else {
-            return getObjectProperties(targetValue, key)
-        }
-    }
+    return key.split(".").reduce((prev,current)=>target[current])
 }
 
 
@@ -329,18 +285,4 @@ export function convertValue(templateString: string | [string, any[]], values?: 
         template_ = template_.replace("?", templateValue)
     }
     return template_
-}
-
-
-export function expressionTemplate(obj: any) {
-    let expression = []
-    expression.push(generatorColumns(obj))
-}
-
-export function parameters2Value(obj: any) {
-    let expression = [];
-    
-    for (let [key, value] of getObjectItems(obj)) {
-        console.log("")
-    }
 }
